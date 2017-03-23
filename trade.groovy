@@ -3,9 +3,8 @@
         @Grab("org.slf4j:slf4j-log4j12:1.7.21"),
 ])
 import groovy.json.JsonSlurper
-import org.knowm.xchange.okcoin.service.OkCoinAccountService
-import org.knowm.xchange.okcoin.service.OkCoinMarketDataService
-import org.knowm.xchange.okcoin.service.OkCoinTradeService
+import org.knowm.xchange.currency.Currency
+import org.knowm.xchange.okcoin.OkCoinExchange
 
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
@@ -14,7 +13,6 @@ import org.apache.log4j.PropertyConfigurator
 import org.knowm.xchange.ExchangeSpecification
 import org.knowm.xchange.currency.CurrencyPair
 import org.knowm.xchange.okcoin.OkCoinExchange
-
 //import org.oxerr.okcoin.rest.OKCoinExchange
 //import org.oxerr.okcoin.rest.dto.OrderData
 //import org.oxerr.okcoin.rest.dto.Status
@@ -38,18 +36,19 @@ class Trading {
         def exchangeSpec = new ExchangeSpecification(exchange.class)
         exchangeSpec.setApiKey(apiKey)
         exchangeSpec.setSecretKey(secKey)
+        exchangeSpec.setExchangeSpecificParametersItem("Use_Intl",true)
         exchange.applySpecification(exchangeSpec)
         return exchange
     }
 
     def ignoreException = {Closure f -> try {f()} catch (all) {}}
     def start() {
-        def accountExchange = createExchange(cfg.account.apikey, cfg.account.seckey) as OkCoinExchange
-        def tradeExchange = createExchange(cfg.trade.apikey, cfg.trade.seckey) as OkCoinExchange
-//        def account = accountExchange.getAccountService as OkCoinAccountService
-//        def market = accountExchange.getMarketDataService as OkCoinMarketDataService
-//        def trader1 = tradeExchange.getTradeService as OkCoinTradeService
-//        def trader2 = tradeExchange.getTradeService as OkCoinTradeService
+        def accountExchange = createExchange(cfg.account.apikey, cfg.account.seckey)
+//        def tradeExchange = createExchange(cfg.trade.apikey, cfg.trade.seckey)
+//        def account = accountExchange.pollingAccountService
+//        def market = accountExchange.pollingMarketDataService
+//        def trader1 = tradeExchange.pollingTradeService
+//        def trader2 = tradeExchange.pollingTradeService
         def threadExecutor = Executors.newCachedThreadPool() as ThreadPoolExecutor
         def trading = false
 
@@ -58,7 +57,7 @@ class Trading {
         def lastTradeId
         def vol = 0
         def updateTrades = {
-            trades = accountExchange.getMarketDataService().getTrades(CurrencyPair.BTC_CNY)
+            trades = accountExchange.getMarketDataService().getTrades(CurrencyPair.BTC_USD)
             vol = 0.7 * vol + 0.3 * trades.sum(0.0) {
                 it.tid > lastTradeId ? it.amount : 0
             }  // 本次tick交易量 = 上次tick交易量*0.7 + 本次tick期间实际发生的交易量*0.3，用于平滑和减少噪音
@@ -72,7 +71,7 @@ class Trading {
         def bidPrice
         def askPrice
         def updateOrderBook = {
-            orderBook = market.getOrderBook(CurrencyPair.BTC_CNY, 3)
+            orderBook = accountExchange.getMarketDataService().getOrderBook(CurrencyPair.BTC_USD)
 
             // 计算提单价格
             bidPrice = orderBook.bids[0].limitPrice * 0.618 + orderBook.asks[0].limitPrice * 0.382 + 0.01
@@ -125,7 +124,7 @@ class Trading {
 
                     if (orders != null) {
                         sleep 400
-                        trader2.cancelOrder("btc_cny", orders.orderInfo.collect {it.orderId} as long[])
+//                        trader2.cancelOrder("btc_cny", orders.orderInfo.collect {it.orderId} as long[])
                     }
                 }
                 while (System.currentTimeMillis() - t < 500) {
@@ -149,9 +148,9 @@ class Trading {
                 sleep 60000
             }
         }
-        userInfo = account.userInfo
-        btc = userInfo.info.funds.free.btc
-        cny = userInfo.info.funds.free.cny
+        userInfo = accountExchange.getAccountService().accountInfo
+        btc = userInfo.wallet.getBalance(Currency.BTC).available
+        cny = userInfo.wallet.getBalance(Currency.USD).available
         p = btc * prices[-1] / (btc * prices[-1] + cny)
         // main loop
         def ts1 = 0
@@ -171,8 +170,8 @@ class Trading {
 
                 logger.info("tick: ${ts0-ts1}, {}, net: {}, total: {}, p: {} - {}/{}, v: {}",
                         String.format("%.2f", prices[-1]),
-                        String.format("%.2f", userInfo.info.funds.asset.net),
-                        String.format("%.2f", userInfo.info.funds.asset.total),
+//                        String.format("%.2f", userInfo.info.funds.asset.net),
+//                        String.format("%.2f", userInfo.info.funds.asset.total),
                         String.format("%.2f", p),
                         String.format("%.3f", btc),
                         String.format("%.2f", cny),
@@ -278,5 +277,5 @@ _prop.setProperty("log4j.appender.trading.layout", "org.apache.log4j.PatternLayo
 _prop.setProperty("log4j.appender.trading.layout.ConversionPattern", "[%d{yyyy-MM-dd HH:mm:ss}] %p %m %n")
 PropertyConfigurator.configure(_prop)
 
-_trading = new Trading(new ConfigSlurper().parse(new File(("C:\\Users\\oath\\IdeaProjects\\okcoin\\example.cfg")).text))
+_trading = new Trading(new ConfigSlurper().parse(new File(("C:\\Users\\wuqianming\\Desktop\\okcoinInt\\example.cfg")).text))
 _trading.start()
